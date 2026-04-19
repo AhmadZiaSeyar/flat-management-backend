@@ -37,6 +37,7 @@ export class BudgetsService {
         remaining: 0,
         percentageUsed: 0,
         setBy: null,
+        updatedAt: null,
       };
     }
 
@@ -50,13 +51,14 @@ export class BudgetsService {
       amount,
       spent,
       remaining: Math.max(amount - spent, 0),
-      percentageUsed: Number(((spent / amount) * 100).toFixed(1)),
+      percentageUsed: amount > 0 ? Number(((spent / amount) * 100).toFixed(1)) : 0,
       setBy: budget.createdBy
         ? {
             id: budget.createdBy.id,
             fullName: budget.createdBy.fullName,
           }
         : null,
+      updatedAt: budget.updatedAt,
     };
   }
 
@@ -89,7 +91,15 @@ export class BudgetsService {
       amount: toMoneyNumber(budget.amount),
       spent,
       remaining: Math.max(upsertBudgetDto.amount - spent, 0),
-      percentageUsed: Number(((spent / upsertBudgetDto.amount) * 100).toFixed(1)),
+      percentageUsed:
+        upsertBudgetDto.amount > 0
+          ? Number(((spent / upsertBudgetDto.amount) * 100).toFixed(1))
+          : 0,
+      setBy: {
+        id: user.id,
+        fullName: user.fullName,
+      },
+      updatedAt: budget.updatedAt,
     };
   }
 

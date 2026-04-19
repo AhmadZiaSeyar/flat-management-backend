@@ -10,26 +10,50 @@ import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 
-const authUserInclude = {
-  userRoles: {
+const authUserBaseSelect = {
+  id: true,
+  fullName: true,
+  username: true,
+  phone: true,
+  passwordHash: true,
+  refreshTokenHash: true,
+  isActive: true,
+} satisfies Prisma.UserSelect;
+
+const authUserBaseSelectWithEmail = {
+  ...authUserBaseSelect,
+  email: true,
+} satisfies Prisma.UserSelect;
+
+const authUserRolesInclude = {
+  role: {
     include: {
-      role: {
+      rolePermissions: {
         include: {
-          rolePermissions: {
-            include: {
-              permission: true,
-            },
-          },
+          permission: true,
         },
       },
     },
   },
-} satisfies Prisma.UserInclude;
+} satisfies Prisma.UserRoleInclude;
 
-type UserWithRoles = Prisma.UserGetPayload<{ include: typeof authUserInclude }>;
+type AuthUserBase = {
+  id: string;
+  fullName: string;
+  username: string | null;
+  phone: string | null;
+  email: string | null;
+  passwordHash: string;
+  refreshTokenHash: string | null;
+  isActive: boolean;
+};
+
+type UserRolesWithPermissions = Prisma.UserRoleGetPayload<{ include: typeof authUserRolesInclude }>;
 
 @Injectable()
 export class AuthService {
+  private emailColumnAvailability: boolean | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -37,26 +61,31 @@ export class AuthService {
   ) {}
 
   async login(loginDto: LoginDto) {
-    const user = await this.findUserByIdentifier(loginDto.identifier);
+    const user = await this.findUserByIdentifier(loginDto.identifier.trim());
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid login details.');
     }
 
-    const secretValue = loginDto.pin ?? loginDto.password;
-    const hash = loginDto.pin ? user.pinHash : user.passwordHash;
+    const passwordHash = user.passwordHash?.trim();
 
-    if (!secretValue || !hash) {
+    if (!passwordHash) {
       throw new UnauthorizedException('Invalid login details.');
     }
 
-    const isValid = await bcrypt.compare(secretValue, hash);
+    let isValid = false;
+
+    try {
+      isValid = await bcrypt.compare(loginDto.password, passwordHash);
+    } catch {
+      throw new UnauthorizedException('Invalid login details.');
+    }
 
     if (!isValid) {
       throw new UnauthorizedException('Invalid login details.');
     }
 
-    const appUser = this.toAuthenticatedUser(user);
+    const appUser = await this.buildAuthenticatedUser(user);
     const tokens = await this.issueTokens(appUser);
 
     await this.storeRefreshTokenHash(appUser.id, tokens.refreshToken);
@@ -78,22 +107,25 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token is invalid or expired.');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      include: authUserInclude,
-    });
+    const user = await this.findUserById(payload.sub);
 
     if (!user?.refreshTokenHash || !user.isActive) {
       throw new UnauthorizedException('Refresh token is invalid or expired.');
     }
 
-    const matches = await bcrypt.compare(refreshTokenDto.refreshToken, user.refreshTokenHash);
+    let matches = false;
+
+    try {
+      matches = await bcrypt.compare(refreshTokenDto.refreshToken, user.refreshTokenHash);
+    } catch {
+      throw new UnauthorizedException('Refresh token is invalid or expired.');
+    }
 
     if (!matches) {
       throw new UnauthorizedException('Refresh token is invalid or expired.');
     }
 
-    const appUser = this.toAuthenticatedUser(user);
+    const appUser = await this.buildAuthenticatedUser(user);
     const tokens = await this.issueTokens(appUser);
 
     await this.storeRefreshTokenHash(appUser.id, tokens.refreshToken);
@@ -105,44 +137,96 @@ export class AuthService {
   }
 
   async me(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: authUserInclude,
-    });
+    const user = await this.findUserById(userId);
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('User account is disabled.');
     }
 
-    return this.toAuthenticatedUser(user);
+    return this.buildAuthenticatedUser(user);
   }
 
   async validateAccessTokenUser(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: authUserInclude,
-    });
+    const user = await this.findUserById(userId);
 
     if (!user || !user.isActive) {
       return null;
     }
 
-    return this.toAuthenticatedUser(user);
+    return this.buildAuthenticatedUser(user);
   }
 
   private async findUserByIdentifier(identifier: string) {
-    return this.prisma.user.findFirst({
-      where: {
-        OR: [{ username: identifier }, { phone: identifier }],
-      },
-      include: authUserInclude,
+    const normalizedIdentifier = identifier.trim();
+    const hasEmailColumn = await this.hasEmailColumn();
+    const isEmailIdentifier = normalizedIdentifier.includes('@');
+    const conditions: Prisma.UserWhereInput[] = [
+      { username: normalizedIdentifier },
+      { phone: normalizedIdentifier },
+    ];
+
+    if (hasEmailColumn && isEmailIdentifier) {
+      conditions.push({ email: normalizedIdentifier.toLowerCase() });
+    }
+
+    if (hasEmailColumn) {
+      const user = await this.prisma.user.findFirst({
+        where: { OR: conditions },
+        select: authUserBaseSelectWithEmail,
+      });
+
+      return user;
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { OR: conditions },
+      select: authUserBaseSelect,
     });
+
+    return user
+      ? {
+      ...user,
+      email: null,
+    }
+      : null;
+  }
+
+  private async findUserById(userId: string) {
+    const hasEmailColumn = await this.hasEmailColumn();
+
+    if (hasEmailColumn) {
+      return this.prisma.user.findUnique({
+        where: { id: userId },
+        select: authUserBaseSelectWithEmail,
+      });
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: authUserBaseSelect,
+    });
+
+    return user
+      ? {
+      ...user,
+      email: null,
+    }
+      : null;
+  }
+
+  private async buildAuthenticatedUser(user: AuthUserBase) {
+    const userRoles = await this.prisma.userRole.findMany({
+      where: { userId: user.id },
+      include: authUserRolesInclude,
+    });
+
+    return this.toAuthenticatedUser(user, userRoles);
   }
 
   private async issueTokens(user: AuthenticatedUser) {
     const payload = {
       sub: user.id,
-      identifier: user.username ?? user.phone ?? user.id,
+      identifier: user.username ?? user.email ?? user.phone ?? user.id,
     };
 
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -167,11 +251,14 @@ export class AuthService {
     });
   }
 
-  private toAuthenticatedUser(user: UserWithRoles): AuthenticatedUser {
-    const roles = user.userRoles.map((entry) => entry.role.name as RoleName);
+  private toAuthenticatedUser(
+    user: AuthUserBase,
+    userRoles: UserRolesWithPermissions[],
+  ): AuthenticatedUser {
+    const roles = userRoles.map((entry) => entry.role.name as RoleName);
     const permissions = Array.from(
       new Set(
-        user.userRoles.flatMap((entry) =>
+        userRoles.flatMap((entry) =>
           entry.role.rolePermissions.map(
             (rolePermission) => rolePermission.permission.key as PermissionName,
           ),
@@ -184,10 +271,31 @@ export class AuthService {
       fullName: user.fullName,
       username: user.username,
       phone: user.phone,
+      email: user.email,
       isActive: user.isActive,
       roles,
       permissions,
     };
+  }
+
+  private async hasEmailColumn() {
+    if (this.emailColumnAvailability !== null) {
+      return this.emailColumnAvailability;
+    }
+
+    const result = await this.prisma.$queryRaw<Array<{ exists: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'users'
+          AND column_name = 'email'
+      ) AS "exists"
+    `;
+
+    this.emailColumnAvailability = result[0]?.exists ?? false;
+
+    return this.emailColumnAvailability;
   }
 
   private getAccessSecret() {

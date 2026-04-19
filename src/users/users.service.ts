@@ -36,8 +36,12 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(createUserDto: CreateUserDto) {
-    if (!createUserDto.username && !createUserDto.phone) {
-      throw new BadRequestException('Provide a username or phone number.');
+    const username = this.normalizeOptionalString(createUserDto.username);
+    const phone = this.normalizeOptionalString(createUserDto.phone);
+    const email = this.normalizeEmail(createUserDto.email);
+
+    if (!username && !phone && !email) {
+      throw new BadRequestException('Provide a username, phone number, or email.');
     }
 
     const roleNames = createUserDto.roleNames?.length
@@ -45,17 +49,16 @@ export class UsersService {
       : [RoleName.Member];
     const roles = await this.getRoles(roleNames);
     const passwordHash = await bcrypt.hash(createUserDto.password, 10);
-    const pinHash = createUserDto.pin ? await bcrypt.hash(createUserDto.pin, 10) : null;
 
     try {
       const user = await this.prisma.$transaction(async (tx) => {
         const createdUser = await tx.user.create({
           data: {
-            fullName: createUserDto.fullName,
-            username: createUserDto.username,
-            phone: createUserDto.phone,
+            fullName: createUserDto.fullName.trim(),
+            username,
+            phone,
+            email,
             passwordHash,
-            pinHash,
           },
         });
 
@@ -79,7 +82,7 @@ export class UsersService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('A user with that username or phone already exists.');
+        throw new ConflictException('A user with that username, phone, or email already exists.');
       }
 
       throw error;
@@ -192,10 +195,21 @@ export class UsersService {
       fullName: user.fullName,
       username: user.username,
       phone: user.phone,
+      email: user.email,
       isActive: user.isActive,
       createdAt: user.createdAt,
       roles,
       permissions,
     };
+  }
+
+  private normalizeOptionalString(value?: string | null) {
+    const normalizedValue = value?.trim();
+    return normalizedValue ? normalizedValue : null;
+  }
+
+  private normalizeEmail(value?: string | null) {
+    const normalizedValue = value?.trim().toLowerCase();
+    return normalizedValue ? normalizedValue : null;
   }
 }

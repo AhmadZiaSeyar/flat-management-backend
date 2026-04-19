@@ -1,10 +1,8 @@
 import {
   IsNotEmpty,
-  IsOptional,
   IsString,
-  Length,
   MinLength,
-  ValidateIf,
+  IsOptional,
 } from 'class-validator';
 
 export class LoginDto {
@@ -12,15 +10,9 @@ export class LoginDto {
   @IsNotEmpty()
   identifier!: string;
 
-  @ValidateIf((value: LoginDto) => !value.pin)
   @IsString()
   @MinLength(6)
-  password?: string;
-
-  @ValidateIf((value: LoginDto) => !value.password)
-  @IsString()
-  @Length(4, 6)
-  pin?: string;
+  password!: string;
 
   @IsOptional()
   @IsString()

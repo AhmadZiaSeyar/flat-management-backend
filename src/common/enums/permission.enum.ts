@@ -5,6 +5,7 @@ export enum PermissionName {
   AddExpense = 'add_expense',
   ViewExpense = 'view_expense',
   ViewReports = 'view_reports',
+  ViewFoodTimetable = 'view_food_timetable',
 }
 
 export const ALL_PERMISSIONS = Object.values(PermissionName);

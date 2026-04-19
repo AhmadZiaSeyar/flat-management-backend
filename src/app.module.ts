@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { BudgetsModule } from './budgets/budgets.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { FoodTimetableModule } from './food-timetable/food-timetable.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ReportsModule } from './reports/reports.module';
 import { UsersModule } from './users/users.module';
@@ -19,6 +20,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     CategoriesModule,
     ExpensesModule,
+    FoodTimetableModule,
     ReportsModule,
     BudgetsModule,
   ],

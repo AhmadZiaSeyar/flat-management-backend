@@ -12,6 +12,7 @@ const permissions = [
   { key: 'add_expense', description: 'Create expenses' },
   { key: 'view_expense', description: 'View expenses' },
   { key: 'view_reports', description: 'View weekly and monthly reports' },
+  { key: 'view_food_timetable', description: 'View the weekly food timetable' },
 ];
 
 const roles = [
@@ -26,6 +27,16 @@ const categories = [
   { name: 'Transport', icon: 'car', color: '#2C7A7B', sortOrder: 4 },
   { name: 'Cleaning', icon: 'sparkles', color: '#4A67FF', sortOrder: 5 },
   { name: 'Internet', icon: 'wifi', color: '#7C59D8', sortOrder: 6 },
+];
+
+const foodTimetableDays = [
+  { dayOfWeek: 1, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Fresh start meal plan.' },
+  { dayOfWeek: 2, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Keep lunch light and quick.' },
+  { dayOfWeek: 3, breakfast: '7:45 AM', lunch: '1:15 PM', dinner: '8:15 PM', note: 'Midweek soup or salad works well.' },
+  { dayOfWeek: 4, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Prep dinner early for a calmer evening.' },
+  { dayOfWeek: 5, breakfast: '8:00 AM', lunch: '1:30 PM', dinner: '8:30 PM', note: 'Friday can be the special shared meal.' },
+  { dayOfWeek: 6, breakfast: '9:00 AM', lunch: '2:00 PM', dinner: '9:00 PM', note: 'Weekend timing can stay flexible.' },
+  { dayOfWeek: 7, breakfast: '9:00 AM', lunch: '2:00 PM', dinner: '8:30 PM', note: 'Use Sunday to plan the next week.' },
 ];
 
 async function seedPermissions() {
@@ -62,7 +73,7 @@ async function seedRoles() {
     });
   }
 
-  for (const permissionKey of ['add_expense', 'view_expense', 'view_reports']) {
+  for (const permissionKey of ['add_expense', 'view_expense', 'view_reports', 'view_food_timetable']) {
     const permission = permissionRows.find((item) => item.key === permissionKey);
     if (!permission) {
       continue;
@@ -88,46 +99,78 @@ async function seedCategories() {
 }
 
 async function seedAdmin() {
-  const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'Admin' } });
-  const username = process.env.ADMIN_USERNAME || 'admin';
+  const roleRows = await prisma.role.findMany({
+    orderBy: {
+      name: 'asc',
+    },
+  });
+  const fullName = process.env.ADMIN_FULL_NAME || 'AhmadZiaSeyar';
+  const username = process.env.ADMIN_USERNAME || 'AhmadZiaSeyar';
   const phone = process.env.ADMIN_PHONE || '+10000000000';
+  const email = (process.env.ADMIN_EMAIL || 'ahmadziaseyar@flatwallet.app').toLowerCase();
   const password = process.env.ADMIN_PASSWORD || 'Admin123!';
-  const pin = process.env.ADMIN_PIN || '1234';
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const pinHash = await bcrypt.hash(pin, 10);
 
-  const admin = await prisma.user.upsert({
-    where: { username },
-    update: {
-      fullName: process.env.ADMIN_FULL_NAME || 'Main Admin',
-      phone,
-      passwordHash,
-      pinHash,
-      isActive: true,
-    },
-    create: {
-      fullName: process.env.ADMIN_FULL_NAME || 'Main Admin',
-      username,
-      phone,
-      passwordHash,
-      pinHash,
-      isActive: true,
+  const existingAdmin = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { username },
+        { email },
+        { username: 'admin' },
+        { email: 'admin@flatwallet.app' },
+      ],
     },
   });
 
-  await prisma.userRole.upsert({
+  const admin = existingAdmin
+    ? await prisma.user.update({
+        where: { id: existingAdmin.id },
+        data: {
+          fullName,
+          username,
+          phone,
+          email,
+          passwordHash,
+          isActive: true,
+        },
+      })
+    : await prisma.user.create({
+        data: {
+          fullName,
+          username,
+          phone,
+          email,
+          passwordHash,
+          isActive: true,
+        },
+      });
+
+  await prisma.userRole.deleteMany({
     where: {
-      userId_roleId: {
-        userId: admin.id,
-        roleId: adminRole.id,
-      },
-    },
-    update: {},
-    create: {
       userId: admin.id,
-      roleId: adminRole.id,
     },
+  });
+
+  await prisma.userRole.createMany({
+    data: roleRows.map((role) => ({
+      userId: admin.id,
+      roleId: role.id,
+    })),
+    skipDuplicates: true,
+  });
+
+  return admin;
+}
+
+async function seedFoodTimetable(adminUserId) {
+  await prisma.foodTimetableDay.deleteMany();
+
+  await prisma.foodTimetableDay.createMany({
+    data: foodTimetableDays.map((day) => ({
+      ...day,
+      updatedById: adminUserId,
+    })),
   });
 }
 
@@ -135,7 +178,8 @@ async function main() {
   await seedPermissions();
   await seedRoles();
   await seedCategories();
-  await seedAdmin();
+  const admin = await seedAdmin();
+  await seedFoodTimetable(admin.id);
 }
 
 main()
