@@ -4,9 +4,20 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const allowedOrigins = parseAllowedOrigins(process.env.CORS_ORIGIN);
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') ?? true,
+    origin: (origin, callback) => {
+      if (!origin || !allowedOrigins.length) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, isOriginAllowed(origin, allowedOrigins));
+    },
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
   app.useGlobalPipes(
     new ValidationPipe({
@@ -21,3 +32,41 @@ async function bootstrap() {
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
+
+function parseAllowedOrigins(value?: string) {
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isOriginAllowed(origin: string, allowedOrigins: string[]) {
+  return allowedOrigins.some((allowedOrigin) => {
+    if (allowedOrigin === '*') {
+      return true;
+    }
+
+    if (allowedOrigin.includes('*')) {
+      return matchesWildcardOrigin(origin, allowedOrigin);
+    }
+
+    return origin === allowedOrigin;
+  });
+}
+
+function matchesWildcardOrigin(origin: string, pattern: string) {
+  try {
+    const originUrl = new URL(origin);
+    const patternUrl = new URL(pattern.replace('*.', 'placeholder.'));
+
+    if (originUrl.protocol !== patternUrl.protocol) {
+      return false;
+    }
+
+    const expectedHostSuffix = patternUrl.host.replace('placeholder.', '.');
+
+    return originUrl.host.endsWith(expectedHostSuffix);
+  } catch {
+    return false;
+  }
+}
