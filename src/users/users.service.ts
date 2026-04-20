@@ -6,8 +6,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { getMonthRange, getWeekRange } from '../common/utils/date.utils';
 import { PermissionName } from '../common/enums/permission.enum';
 import { RoleName } from '../common/enums/role.enum';
+import { toMoneyNumber } from '../common/utils/number.utils';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
@@ -30,6 +32,10 @@ const userListInclude = {
 } satisfies Prisma.UserInclude;
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: typeof userListInclude }>;
+type UserExpenseTotals = {
+  weeklyExpenseTotal: number;
+  monthlyExpenseTotal: number;
+};
 
 @Injectable()
 export class UsersService {
@@ -90,12 +96,56 @@ export class UsersService {
   }
 
   async findAll() {
-    const users = await this.prisma.user.findMany({
-      include: userListInclude,
-      orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }],
-    });
+    const referenceDate = new Date();
+    const weekRange = getWeekRange(referenceDate);
+    const monthRange = getMonthRange(referenceDate);
 
-    return users.map((user) => this.serializeUser(user));
+    const [users, weeklyExpenses, monthlyExpenses] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        include: userListInclude,
+        orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }],
+      }),
+      this.prisma.expense.groupBy({
+        by: ['createdById'],
+        where: {
+          expenseDate: {
+            gte: weekRange.start,
+            lte: weekRange.end,
+          },
+        },
+        orderBy: {
+          createdById: 'asc',
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+      this.prisma.expense.groupBy({
+        by: ['createdById'],
+        where: {
+          expenseDate: {
+            gte: monthRange.start,
+            lte: monthRange.end,
+          },
+        },
+        orderBy: {
+          createdById: 'asc',
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+    ]);
+
+    const weeklyExpenseTotals = this.createExpenseTotalMap(weeklyExpenses);
+    const monthlyExpenseTotals = this.createExpenseTotalMap(monthlyExpenses);
+
+    return users.map((user) =>
+      this.serializeUser(user, {
+        weeklyExpenseTotal: weeklyExpenseTotals.get(user.id) ?? 0,
+        monthlyExpenseTotal: monthlyExpenseTotals.get(user.id) ?? 0,
+      }),
+    );
   }
 
   async listRoles() {
@@ -137,7 +187,7 @@ export class UsersService {
       });
     });
 
-    return this.serializeUser(updatedUser);
+    return this.serializeUser(updatedUser, await this.getExpenseTotalsForUser(userId));
   }
 
   async updateStatus(userId: string, updateUserStatusDto: UpdateUserStatusDto) {
@@ -149,7 +199,7 @@ export class UsersService {
       include: userListInclude,
     });
 
-    return this.serializeUser(user);
+    return this.serializeUser(user, await this.getExpenseTotalsForUser(userId));
   }
 
   private async getRoles(roleNames: RoleName[]) {
@@ -178,7 +228,64 @@ export class UsersService {
     return user;
   }
 
-  private serializeUser(user: UserWithRoles) {
+  private createExpenseTotalMap(
+    expenseGroups: Array<{
+      createdById: string;
+      _sum?: {
+        amount?: Prisma.Decimal | null;
+      } | null;
+    }>,
+  ) {
+    return new Map(
+      expenseGroups.map((group) => [
+        group.createdById,
+        group._sum?.amount ? toMoneyNumber(group._sum.amount) : 0,
+      ]),
+    );
+  }
+
+  private async getExpenseTotalsForUser(userId: string): Promise<UserExpenseTotals> {
+    const referenceDate = new Date();
+    const weekRange = getWeekRange(referenceDate);
+    const monthRange = getMonthRange(referenceDate);
+
+    const [weeklyExpense, monthlyExpense] = await this.prisma.$transaction([
+      this.prisma.expense.aggregate({
+        where: {
+          createdById: userId,
+          expenseDate: {
+            gte: weekRange.start,
+            lte: weekRange.end,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+      this.prisma.expense.aggregate({
+        where: {
+          createdById: userId,
+          expenseDate: {
+            gte: monthRange.start,
+            lte: monthRange.end,
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+    ]);
+
+    return {
+      weeklyExpenseTotal: weeklyExpense._sum.amount ? toMoneyNumber(weeklyExpense._sum.amount) : 0,
+      monthlyExpenseTotal: monthlyExpense._sum.amount ? toMoneyNumber(monthlyExpense._sum.amount) : 0,
+    };
+  }
+
+  private serializeUser(user: UserWithRoles, expenseTotals: UserExpenseTotals = {
+    weeklyExpenseTotal: 0,
+    monthlyExpenseTotal: 0,
+  }) {
     const roles = user.userRoles.map((item) => item.role.name as RoleName);
     const permissions = Array.from(
       new Set(
@@ -200,6 +307,8 @@ export class UsersService {
       createdAt: user.createdAt,
       roles,
       permissions,
+      weeklyExpenseTotal: expenseTotals.weeklyExpenseTotal,
+      monthlyExpenseTotal: expenseTotals.monthlyExpenseTotal,
     };
   }
 
