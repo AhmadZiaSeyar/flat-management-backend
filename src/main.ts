@@ -34,11 +34,17 @@ async function bootstrap() {
 bootstrap();
 
 function parseAllowedOrigins(value?: string) {
-  return (value ?? '')
-    .split(',')
+  return [...DEFAULT_ALLOWED_ORIGINS, ...(value ?? '').split(',')]
     .map((item) => item.trim())
     .filter(Boolean);
 }
+
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:8081',
+  'http://localhost:19006',
+  'https://*.vercel.app',
+];
 
 function isOriginAllowed(origin: string, allowedOrigins: string[]) {
   return allowedOrigins.some((allowedOrigin) => {
