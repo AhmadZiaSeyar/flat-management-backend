@@ -75,6 +75,14 @@ export class ExpensesService {
     return expenses.map((expense) => this.serializeExpense(expense));
   }
 
+  async clearAll() {
+    const result = await this.prisma.expense.deleteMany();
+
+    return {
+      deletedCount: result.count,
+    };
+  }
+
   private serializeExpense(expense: ExpenseWithRelations) {
     return {
       id: expense.id,

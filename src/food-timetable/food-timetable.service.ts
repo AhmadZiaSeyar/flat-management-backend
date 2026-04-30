@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { UpsertFoodTimetableDto } from './dto/upsert-food-timetable.dto';
 
-const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+const WEEK_DAYS = [5, 6, 7, 1, 2, 3, 4] as const;
 
 @Injectable()
 export class FoodTimetableService {

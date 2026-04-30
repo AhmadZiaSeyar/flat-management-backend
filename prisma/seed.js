@@ -11,6 +11,7 @@ const permissions = [
   { key: 'assign_role', description: 'Assign roles to users' },
   { key: 'add_expense', description: 'Create expenses' },
   { key: 'view_expense', description: 'View expenses' },
+  { key: 'clear_expenses', description: 'Clear all expenses' },
   { key: 'view_reports', description: 'View weekly and monthly reports' },
   { key: 'view_food_timetable', description: 'View the weekly food timetable' },
 ];
@@ -30,14 +31,28 @@ const categories = [
 ];
 
 const foodTimetableDays = [
-  { dayOfWeek: 1, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Fresh start meal plan.' },
-  { dayOfWeek: 2, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Keep lunch light and quick.' },
-  { dayOfWeek: 3, breakfast: '7:45 AM', lunch: '1:15 PM', dinner: '8:15 PM', note: 'Midweek soup or salad works well.' },
-  { dayOfWeek: 4, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Prep dinner early for a calmer evening.' },
   { dayOfWeek: 5, breakfast: '8:00 AM', lunch: '1:30 PM', dinner: '8:30 PM', note: 'Friday can be the special shared meal.' },
   { dayOfWeek: 6, breakfast: '9:00 AM', lunch: '2:00 PM', dinner: '9:00 PM', note: 'Weekend timing can stay flexible.' },
-  { dayOfWeek: 7, breakfast: '9:00 AM', lunch: '2:00 PM', dinner: '8:30 PM', note: 'Use Sunday to plan the next week.' },
+  { dayOfWeek: 7, breakfast: '9:00 AM', lunch: '2:00 PM', dinner: '8:30 PM', note: 'A relaxed Sunday lunch keeps the day easy.' },
+  { dayOfWeek: 1, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Fresh start meal plan.' },
+  { dayOfWeek: 2, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Keep lunch light and quick.' },
+  { dayOfWeek: 3, breakfast: '7:45 AM', lunch: '1:15 PM', dinner: '8:15 PM', note: 'Soup or salad works well for a lighter day.' },
+  { dayOfWeek: 4, breakfast: '7:30 AM', lunch: '1:00 PM', dinner: '8:00 PM', note: 'Use Thursday to plan the next week.' },
 ];
+
+async function resetDatabase() {
+  await prisma.$transaction([
+    prisma.rolePermission.deleteMany(),
+    prisma.userRole.deleteMany(),
+    prisma.expense.deleteMany(),
+    prisma.budget.deleteMany(),
+    prisma.foodTimetableDay.deleteMany(),
+    prisma.category.deleteMany(),
+    prisma.permission.deleteMany(),
+    prisma.role.deleteMany(),
+    prisma.user.deleteMany(),
+  ]);
+}
 
 async function seedPermissions() {
   for (const permission of permissions) {
@@ -175,11 +190,14 @@ async function seedFoodTimetable(adminUserId) {
 }
 
 async function main() {
+  await resetDatabase();
   await seedPermissions();
   await seedRoles();
   await seedCategories();
   const admin = await seedAdmin();
   await seedFoodTimetable(admin.id);
+  // Finish with an empty expense table so a fresh seed always starts from zero expenses.
+  await prisma.expense.deleteMany();
 }
 
 main()

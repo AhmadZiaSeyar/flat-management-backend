@@ -1,3 +1,5 @@
+const WEEK_START_DAY = 5;
+
 export function getDayRange(referenceDate: Date) {
   const start = new Date(referenceDate);
   start.setHours(0, 0, 0, 0);
@@ -11,8 +13,8 @@ export function getDayRange(referenceDate: Date) {
 export function getWeekRange(referenceDate: Date) {
   const start = new Date(referenceDate);
   const day = start.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + diff);
+  const daysSinceWeekStart = (day - WEEK_START_DAY + 7) % 7;
+  start.setDate(start.getDate() - daysSinceWeekStart);
   start.setHours(0, 0, 0, 0);
 
   const end = new Date(start);

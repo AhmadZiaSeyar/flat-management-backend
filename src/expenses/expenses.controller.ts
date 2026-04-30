@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Query } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { PermissionName } from '../common/enums/permission.enum';
@@ -24,5 +24,11 @@ export class ExpensesController {
   @Get()
   findAll(@Query() listExpensesDto: ListExpensesDto) {
     return this.expensesService.findAll(listExpensesDto);
+  }
+
+  @Permissions(PermissionName.ClearExpenses)
+  @Delete()
+  clearAll() {
+    return this.expensesService.clearAll();
   }
 }

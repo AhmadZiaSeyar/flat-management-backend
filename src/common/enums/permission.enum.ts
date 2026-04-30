@@ -4,6 +4,7 @@ export enum PermissionName {
   AssignRole = 'assign_role',
   AddExpense = 'add_expense',
   ViewExpense = 'view_expense',
+  ClearExpenses = 'clear_expenses',
   ViewReports = 'view_reports',
   ViewFoodTimetable = 'view_food_timetable',
 }
